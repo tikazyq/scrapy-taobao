@@ -38,7 +38,7 @@ class TaobaoItem(scrapy.Item):
     weight = scrapy.Field()  # 净重(g)
 
     # promotion
-    rank = scrapy.Field()  # 排名
+    rank = scrapy.Field()  # 排名(综合)
     is_ad = scrapy.Field()  # 是否为广告
 
     # item info
@@ -48,4 +48,10 @@ class TaobaoItem(scrapy.Item):
 
     # stats
     view_sales = scrapy.Field()  # 近30天支付数量
+    sold_total_count = scrapy.Field()  # 近30天出售的数量(详情页)
+    confirmed_sales = scrapy.Field()  # 近30天成功交易的数量(详情页)
+    stock_type = scrapy.Field()  # 库存类别
+    stock_qty = scrapy.Field()  # 库存总量
+    stock_hold_qty = scrapy.Field()  # 库存冻结数量
+    stock_available_qty = scrapy.Field()  # 库存可购数量
     comment_count = scrapy.Field()  # 总评论数

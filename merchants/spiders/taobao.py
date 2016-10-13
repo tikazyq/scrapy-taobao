@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+import logging
 import re
 from urllib import unquote
 
@@ -16,18 +17,20 @@ class TaobaoSpider(scrapy.Spider):
     name = "taobao"
     base_url = 'https://s.taobao.com/search?q=%s&s=%s'
     base_url_shopcard = 'https://s.taobao.com/api?sid=%s&app=api&m=get_shop_card'
+    base_url_item = 'https://item.taobao.com/item.htm?id=%s'
+    base_url_item_detail = 'https://detailskip.taobao.com/service/getData/1/p1/item/detail/sib.htm?itemId=%s&modules=qrcode,viewer,price,contract,duty,xmpPromotion,dynStock,delivery,activity,fqg,zjys,coupon,soldQuantity'
     page_interval = 44
     page_num = 100
-    keywords = [
-        u'羊肚菌',
-        u'红薯',
-    ]
     allowed_domains = ["taobao.com"]
-    start_urls = [
-        base_url % (kw, i * page_interval)
-        for kw in keywords
-        for i in range(page_num)
-        ]
+
+    def __init__(self, keywords=''):
+        print keywords
+        self.keywords = keywords.split(',')
+        self.start_urls = [
+            self.base_url % (kw, i * self.page_interval)
+            for kw in self.keywords
+            for i in range(self.page_num)
+            ]
 
     def get_query(self, response):
         return unquote(re.search('q=([\w%]+)&?', response.url).group(1))
@@ -41,6 +44,9 @@ class TaobaoSpider(scrapy.Spider):
 
     def get_rank(self, response, i):
         return int(re.search('s=(\d+)&?', response.url).group(1)) + i + 1
+
+    def wrap_url(self, id):
+        return 'http://item.taobao.com/item.htm?id=%s' % id
 
     def is_ad(self, elem):
         for icon in elem['icon']:
@@ -96,4 +102,27 @@ class TaobaoSpider(scrapy.Spider):
                 view_sales=elem['view_sales'],
                 comment_count=elem['comment_count'],
             )
-            yield item
+
+            s = requests.Session()
+            s.headers['referer'] = response.url
+            yield scrapy.Request(self.base_url_item_detail % item['id'],
+                                 callback=self.parse_item,
+                                 headers={'referer': self.base_url_item % item['id']},
+                                 meta={'item': item,
+                                       'dont_merge_cookie': True})
+
+    def parse_item_detail(self, response):
+        yield scrapy.Request(self.base_url_item_detail % response.meta['item']['id'],
+                             callback=self.parse_item_detail,
+                             meta=response.meta)
+
+    def parse_item(self, response):
+        item = response.meta['item']
+        data = json.loads(response.body.strip())['data']
+        item['sold_total_count'] = data['soldQuantity']['soldTotalCount']
+        item['confirmed_sales'] = data['soldQuantity']['confirmGoodsCount']
+        item['stock_type'] = data['dynStock']['stockType']
+        item['stock_qty'] = data['dynStock']['stock']
+        item['stock_hold_qty'] = data['dynStock']['holdQuantity']
+        item['stock_available_qty'] = data['dynStock']['sellableQuantity']
+        yield item
