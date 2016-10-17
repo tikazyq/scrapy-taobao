@@ -14,10 +14,12 @@ class TaobaoItem(scrapy.Item):
     title = scrapy.Field()
     raw_title = scrapy.Field()
     query = scrapy.Field()
+    query_sort_type = scrapy.Field()
     url = scrapy.Field()
 
     # seller
     shop_id = scrapy.Field()
+    shop_web_id = scrapy.Field()
     shop_name = scrapy.Field()
     shop_url = scrapy.Field()
     is_tmall = scrapy.Field()
@@ -29,6 +31,8 @@ class TaobaoItem(scrapy.Item):
     sc_service_pct = scrapy.Field()
     sc_delivery_rating = scrapy.Field()
     sc_delivery_pct = scrapy.Field()
+    seller_credit = scrapy.Field()
+    total_rate = scrapy.Field()
 
     # price
     view_price = scrapy.Field()  # 展示价格
@@ -55,3 +59,9 @@ class TaobaoItem(scrapy.Item):
     stock_hold_qty = scrapy.Field()  # 库存冻结数量
     stock_available_qty = scrapy.Field()  # 库存可购数量
     comment_count = scrapy.Field()  # 总评论数
+
+    # stats extra
+    dfx_200_1 = scrapy.Field()
+    icvt_7 = scrapy.Field()
+    sccp_2 = scrapy.Field()
+    iccp_1 = scrapy.Field()

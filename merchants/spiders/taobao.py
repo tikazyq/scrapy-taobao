@@ -15,17 +15,25 @@ cache = {}
 
 class TaobaoSpider(scrapy.Spider):
     name = "taobao"
-    base_url = 'https://s.taobao.com/search?q=%s&s=%s'
+    base_urls = {
+        'default': 'https://s.taobao.com/search?q=%s&s=%s',
+        'renqi': 'https://s.taobao.com/search?q=%s&s=%s&sort=renqi-desc',
+        'sale': 'https://s.taobao.com/search?q=%s&s=%s&sort=sale-desc',
+        'credit': 'https://s.taobao.com/search?q=%s&s=%s&sort=credit-desc',
+    }
+    base_url_counter3 = 'https://count.taobao.com/counter3?callback=json86&sign=26024ae05065c1dad23b856300dd656ed20ac&keys=DFX_200_1_%s,ICVT_7_%s,ICCP_1_%s,SCCP_2_%s'
     base_url_shopcard = 'https://s.taobao.com/api?sid=%s&app=api&m=get_shop_card'
     base_url_item = 'https://item.taobao.com/item.htm?id=%s'
     base_url_item_detail = 'https://detailskip.taobao.com/service/getData/1/p1/item/detail/sib.htm?itemId=%s&modules=qrcode,viewer,price,contract,duty,xmpPromotion,dynStock,delivery,activity,fqg,zjys,coupon,soldQuantity'
     page_interval = 44
     page_num = 100
-    allowed_domains = ["taobao.com"]
+    allowed_domains = ["tmall.com", "taobao.com"]
 
-    def __init__(self, keywords=''):
+    def __init__(self, keywords='', sort_type='default'):
         print keywords
         self.keywords = keywords.split(',')
+        self.query_sort_type = sort_type if sort_type in self.base_urls.keys() else 'default'
+        self.base_url = self.base_urls[self.query_sort_type]
         self.start_urls = [
             self.base_url % (kw, i * self.page_interval)
             for kw in self.keywords
@@ -44,6 +52,9 @@ class TaobaoSpider(scrapy.Spider):
 
     def get_rank(self, response, i):
         return int(re.search('s=(\d+)&?', response.url).group(1)) + i + 1
+
+    def get_shop_web_id(self, response):
+        return re.search('shopId=(\d+);', response.body).group(1)
 
     def wrap_url(self, id):
         return 'http://item.taobao.com/item.htm?id=%s' % id
@@ -72,6 +83,7 @@ class TaobaoSpider(scrapy.Spider):
                 title=elem['title'],
                 raw_title=elem['raw_title'],
                 query=query,
+                query_sort_type=self.query_sort_type,
                 url=elem['detail_url'],
                 # seller
                 shop_id=elem['user_id'],
@@ -80,11 +92,13 @@ class TaobaoSpider(scrapy.Spider):
                 is_tmall=elem['shopcard']['isTmall'],
                 # seller rating
                 sc_description_rating=elem['shopcard']['description'][0],
-                sc_description_pct=elem['shopcard']['description'][2],
+                sc_description_pct=int(elem['shopcard']['description'][1]) * int(elem['shopcard']['description'][2]),
                 sc_service_rating=elem['shopcard']['service'][0],
-                sc_service_pct=elem['shopcard']['service'][2],
+                sc_service_pct=int(elem['shopcard']['service'][1]) * int(elem['shopcard']['service'][2]),
                 sc_delivery_rating=elem['shopcard']['delivery'][0],
-                sc_delivery_pct=elem['shopcard']['delivery'][2],
+                sc_delivery_pct=int(elem['shopcard']['delivery'][1]) * int(elem['shopcard']['delivery'][2]),
+                seller_credit=elem['shopcard'].get('sellerCredit'),
+                total_rate=elem['shopcard'].get('totalRate'),
                 # price
                 view_price=elem['view_price'],
                 reserve_price=elem['reserve_price'],
@@ -105,18 +119,20 @@ class TaobaoSpider(scrapy.Spider):
 
             s = requests.Session()
             s.headers['referer'] = response.url
-            yield scrapy.Request(self.base_url_item_detail % item['id'],
+            yield scrapy.Request(self.base_url_item % item['id'],
                                  callback=self.parse_item,
-                                 headers={'referer': self.base_url_item % item['id']},
                                  meta={'item': item,
                                        'dont_merge_cookie': True})
 
-    def parse_item_detail(self, response):
-        yield scrapy.Request(self.base_url_item_detail % response.meta['item']['id'],
-                             callback=self.parse_item_detail,
-                             meta=response.meta)
-
     def parse_item(self, response):
+        item = response.meta['item']
+        item['shop_web_id'] = self.get_shop_web_id(response)
+        yield scrapy.Request(self.base_url_item_detail % item['id'],
+                             callback=self.parse_item_detail,
+                             meta={'item': item,
+                                   'dont_merge_cookie': True})
+
+    def parse_item_detail(self, response):
         item = response.meta['item']
         data = json.loads(response.body.strip())['data']
         item['sold_total_count'] = data['soldQuantity']['soldTotalCount']
@@ -125,4 +141,16 @@ class TaobaoSpider(scrapy.Spider):
         item['stock_qty'] = data['dynStock']['stock']
         item['stock_hold_qty'] = data['dynStock']['holdQuantity']
         item['stock_available_qty'] = data['dynStock']['sellableQuantity']
+        yield scrapy.Request(self.base_url_counter3 % (item['id'], item['id'], item['id'], item['shop_web_id']),
+                             callback=self.parse_item_counter,
+                             meta={'item': item,
+                                   'dont_merge_cookie': True})
+
+    def parse_item_counter(self, response):
+        item = response.meta['item']
+        raw = json.loads(re.search('json86\((.*)\);', response.body.strip()).group(1))
+        item['dfx_200_1'] = raw['DFX_200_1_%s' % item['id']]
+        item['icvt_7'] = raw['ICVT_7_%s' % item['id']]
+        item['iccp_1'] = raw['ICCP_1_%s' % item['id']]
+        item['sccp_2'] = raw['SCCP_2_%s' % item['shop_web_id']]
         yield item
